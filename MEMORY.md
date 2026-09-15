@@ -6,7 +6,6 @@ _Last Updated: 2026-05-13 | Session: Perplexity Computer (MIKE Space)_
 ## 🧠 Operator Identity
 - **Name:** Jeremiah Van Wagner
 - **Role:** Chief Architect & Strategist, TRUTH J BLUE LLC
-- **Location:** Pensacola, Florida
 - **AI Persona:** Truth J Blue — philosopher, mystic in Christ, spiritual-self-help media creator
 - **Mission:** Empower individuals to see their Divine power, recognize their Divine potential, align with their Divine purpose
 - **GitHub:** `jeremiahvanwagner-droid`
