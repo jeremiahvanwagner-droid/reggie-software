@@ -106,20 +106,24 @@ GHL_PRIVATE_INTEGRATION_TOKEN=${GHL_PRIVATE_INTEGRATION_TOKEN}
 EOF
 fi
 
-# ── Multi-tenant GHL tokens (TJB + MSL sub-accounts) ────────
-if [[ -n "${GHL_PRIVATE_INTEGRATION_TOKEN_TJB:-}" ]]; then
-  cat >> "$HOME/.config/openclaw-prod/credentials.env" <<EOF
-GHL_PRIVATE_INTEGRATION_TOKEN_TJB=${GHL_PRIVATE_INTEGRATION_TOKEN_TJB}
-GHL_LOCATION_ID_TJB=${GHL_LOCATION_ID_TJB}
-EOF
-fi
+# ── Multi-tenant GHL tokens ─────────────────────────────────
+GHL_TENANT_ALIASES=(TJB MSL RR AAMA IBM EOS_TEMPLATES EOS_MODULES RTL)
+for alias in "${GHL_TENANT_ALIASES[@]}"; do
+  token_var="GHL_PRIVATE_INTEGRATION_TOKEN_${alias}"
+  location_var="GHL_LOCATION_ID_${alias}"
+  token_value="${!token_var:-}"
+  location_value="${!location_var:-}"
 
-if [[ -n "${GHL_PRIVATE_INTEGRATION_TOKEN_MSL:-}" ]]; then
-  cat >> "$HOME/.config/openclaw-prod/credentials.env" <<EOF
-GHL_PRIVATE_INTEGRATION_TOKEN_MSL=${GHL_PRIVATE_INTEGRATION_TOKEN_MSL}
-GHL_LOCATION_ID_MSL=${GHL_LOCATION_ID_MSL}
-EOF
-fi
+  if [[ -n "$token_value" && -n "$location_value" ]]; then
+    printf '%s=%s\n%s=%s\n' \
+      "$token_var" "$token_value" \
+      "$location_var" "$location_value" \
+      >> "$HOME/.config/openclaw-prod/credentials.env"
+  elif [[ -n "$token_value" || -n "$location_value" ]]; then
+    echo "Incomplete GHL tenant pair for $alias; token and location ID must both be set." >&2
+    exit 1
+  fi
+done
 
 mkdir -p "$HOME/.openclaw/workspace"
 cat > "$HOME/.openclaw/workspace/SAFETY_POLICY.md" <<'EOF'

@@ -6,72 +6,54 @@ import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
 import { createGhlClient } from '../lib/ghl-client.mjs';
-import { listTenants, resolve as resolveTenant } from '../lib/ghl-tenant-resolver.mjs';
+import {
+  GHL_TENANT_ALIASES,
+  listTenants,
+  resolve as resolveTenant,
+} from '../lib/ghl-tenant-resolver.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT_DIR = resolvePath(__dirname, '..');
 const ENV_PATH = join(ROOT_DIR, '.env');
-const EXPECTED_TENANTS = ['TJB', 'MSL'];
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 const API_VERSION = '2021-07-28';
 const GHL_ENV_KEYS = [
   'GHL_PRIVATE_INTEGRATION_TOKEN',
   'GHL_LOCATION_ID',
-  'GHL_PRIVATE_INTEGRATION_TOKEN_TJB',
-  'GHL_LOCATION_ID_TJB',
-  'GHL_PRIVATE_INTEGRATION_TOKEN_MSL',
-  'GHL_LOCATION_ID_MSL',
+  ...GHL_TENANT_ALIASES.flatMap(alias => [
+    `GHL_PRIVATE_INTEGRATION_TOKEN_${alias}`,
+    `GHL_LOCATION_ID_${alias}`,
+  ]),
   'GHL_TOKEN',
 ];
 
 function unquote(value) {
   if (!value) return value;
-  if (
-    (value.startsWith('"') && value.endsWith('"'))
-    || (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     return value.slice(1, -1);
   }
   return value;
 }
 
 function parseDotEnv(envPath) {
-  if (!existsSync(envPath)) {
-    return {};
-  }
-
+  if (!existsSync(envPath)) return {};
   const values = {};
   const envText = readFileSync(envPath, 'utf8');
   for (const rawLine of envText.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
-
     const eqIndex = line.indexOf('=');
     if (eqIndex === -1) continue;
-
     const key = line.slice(0, eqIndex).trim();
     if (!GHL_ENV_KEYS.includes(key)) continue;
     values[key] = unquote(line.slice(eqIndex + 1).trim());
   }
-
   return values;
 }
 
-function summarizeValue(value) {
-  if (!value) {
-    return {
-      present: false,
-      length: 0,
-      tail: null,
-    };
-  }
-
-  return {
-    present: true,
-    length: value.length,
-    tail: value.slice(-6),
-  };
+function presence(value) {
+  return { present: Boolean(value), length: value ? value.length : 0 };
 }
 
 function valuesMatch(left, right) {
@@ -90,188 +72,102 @@ function readUserEnv(key) {
       return '';
     }
   }
-
   return process.env[key] || '';
 }
 
 async function checkUserPrimaryAuth(token, locationId) {
   if (!token || !locationId) {
-    return {
-      ok: false,
-      status: null,
-      mode: 'user_primary_env',
-      message: 'Missing GHL_PRIVATE_INTEGRATION_TOKEN or GHL_LOCATION_ID in user env',
-    };
+    return { ok: false, status: null, mode: 'user_primary_env', message: 'Missing primary token or location ID' };
   }
-
   const response = await fetch(`${GHL_BASE}/locations/${locationId}`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
-      Version: API_VERSION,
-    },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, Version: API_VERSION },
   });
-
-  let body = null;
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    body = await response.json();
-  } else {
-    body = await response.text();
-  }
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    mode: 'user_primary_env',
-    bodyKeys: body && typeof body === 'object' ? Object.keys(body).slice(0, 10) : [],
-    message: response.ok
-      ? null
-      : typeof body === 'string'
-        ? body.slice(0, 200)
-        : JSON.stringify(body).slice(0, 200),
-  };
+  return { ok: response.ok, status: response.status, mode: 'user_primary_env' };
 }
 
 async function checkResolverTenant(alias) {
   try {
     const tenant = resolveTenant(alias);
-    const client = createGhlClient(alias, {
-      retryBaseMs: 0,
-      retryJitterMs: 0,
-      maxRetries: 0,
-    });
-    const result = await client.locations.get();
+    const client = createGhlClient(alias, { retryBaseMs: 0, retryJitterMs: 0, maxRetries: 0 });
+    await client.locations.get();
     return {
       alias,
       configured: Boolean(tenant.token && tenant.locationId),
-      token: summarizeValue(tenant.token),
-      locationId: summarizeValue(tenant.locationId),
-      auth: {
-        ok: true,
-        status: 200,
-        mode: 'resolver_client',
-        bodyKeys: result && typeof result === 'object' ? Object.keys(result).slice(0, 10) : [],
-        message: null,
-      },
+      token: presence(tenant.token),
+      locationId: tenant.locationId,
+      auth: { ok: true, status: 200, mode: 'resolver_client' },
     };
   } catch (error) {
-    const tenant = (() => {
-      try {
-        return resolveTenant(alias);
-      } catch {
-        return { token: '', locationId: '' };
-      }
-    })();
-
     return {
       alias,
-      configured: Boolean(tenant.token && tenant.locationId),
-      token: summarizeValue(tenant.token),
-      locationId: summarizeValue(tenant.locationId),
-      auth: {
-        ok: false,
-        status: error.status || null,
-        mode: 'resolver_client',
-        bodyKeys: [],
-        message: error.message,
-      },
+      configured: false,
+      auth: { ok: false, status: error.status || null, mode: 'resolver_client', message: error.message },
     };
   }
 }
 
 async function main() {
   const dotEnvValues = parseDotEnv(ENV_PATH);
+  const resolverTenants = listTenants();
+  const configuredAliases = resolverTenants.map(tenant => tenant.alias);
+  const tenantChecks = await Promise.all(configuredAliases.map(checkResolverTenant));
+  const resolverDefault = resolveTenant();
+
   const userPrimaryToken = readUserEnv('GHL_PRIVATE_INTEGRATION_TOKEN');
   const userPrimaryLocationId = readUserEnv('GHL_LOCATION_ID');
-  const resolverDefault = resolveTenant();
-  const resolverTenants = listTenants();
-  const tenantChecks = await Promise.all(EXPECTED_TENANTS.map(checkResolverTenant));
   const userPrimaryAuth = await checkUserPrimaryAuth(userPrimaryToken, userPrimaryLocationId);
   const warnings = [];
 
-  if (!dotEnvValues.GHL_LOCATION_ID && !dotEnvValues.GHL_LOCATION_ID_TJB) {
-    warnings.push('.env is missing GHL_LOCATION_ID (and no GHL_LOCATION_ID_TJB fallback); scripts that rely on the primary alias may drift.');
+  for (const alias of GHL_TENANT_ALIASES) {
+    const tokenKey = `GHL_PRIVATE_INTEGRATION_TOKEN_${alias}`;
+    const locationKey = `GHL_LOCATION_ID_${alias}`;
+    const hasToken = Boolean(dotEnvValues[tokenKey]);
+    const hasLocation = Boolean(dotEnvValues[locationKey]);
+    if (hasToken !== hasLocation) warnings.push(`Incomplete GHL tenant pair for ${alias}`);
   }
 
-  if (/^\$\{[A-Z0-9_]+\}$/.test(dotEnvValues.GHL_TOKEN || '')) {
-    warnings.push('.env GHL_TOKEN is a literal ${...} alias; raw env loaders may send that string and get a 401.');
+  if (dotEnvValues.GHL_PRIVATE_INTEGRATION_TOKEN && !valuesMatch(dotEnvValues.GHL_PRIVATE_INTEGRATION_TOKEN, resolverDefault.token)) {
+    warnings.push('.env primary token does not match the resolver default tenant token.');
+  }
+  if (dotEnvValues.GHL_LOCATION_ID && !valuesMatch(dotEnvValues.GHL_LOCATION_ID, resolverDefault.locationId)) {
+    warnings.push('.env primary location does not match the resolver default tenant location.');
   }
 
-  if (
-    dotEnvValues.GHL_PRIVATE_INTEGRATION_TOKEN
-    && !valuesMatch(dotEnvValues.GHL_PRIVATE_INTEGRATION_TOKEN, resolverDefault.token)
-  ) {
-    warnings.push('.env GHL_PRIVATE_INTEGRATION_TOKEN does not match the resolver default tenant token.');
-  }
-
-  if (
-    dotEnvValues.GHL_LOCATION_ID
-    && !valuesMatch(dotEnvValues.GHL_LOCATION_ID, resolverDefault.locationId)
-  ) {
-    warnings.push('.env GHL_LOCATION_ID does not match the resolver default tenant location.');
-  }
-
-  if (
-    userPrimaryToken
-    && !valuesMatch(userPrimaryToken, resolverDefault.token)
-  ) {
-    warnings.push('User-level GHL_PRIVATE_INTEGRATION_TOKEN does not match the resolver default tenant token.');
-  }
-
-  if (
-    userPrimaryLocationId
-    && !valuesMatch(userPrimaryLocationId, resolverDefault.locationId)
-  ) {
-    warnings.push('User-level GHL_LOCATION_ID does not match the resolver default tenant location.');
-  }
+  const tenantSpecific = Object.fromEntries(
+    GHL_TENANT_ALIASES.map(alias => [
+      alias,
+      {
+        token: presence(readUserEnv(`GHL_PRIVATE_INTEGRATION_TOKEN_${alias}`)),
+        locationId: readUserEnv(`GHL_LOCATION_ID_${alias}`) || null,
+      },
+    ]),
+  );
 
   const report = {
     generatedAt: new Date().toISOString(),
+    configuredTenantCount: resolverTenants.length,
+    resolver: {
+      configuredTenants: resolverTenants,
+      defaultTenant: { alias: resolverDefault.alias, locationId: resolverDefault.locationId },
+    },
     envFile: {
       path: ENV_PATH,
       exists: existsSync(ENV_PATH),
-      keys: Object.fromEntries(
-        GHL_ENV_KEYS.map(key => [key, summarizeValue(dotEnvValues[key] || '')]),
-      ),
-    },
-    resolver: {
-      configuredTenants: resolverTenants.map(tenant => ({
-        alias: tenant.alias,
-        locationId: summarizeValue(tenant.locationId),
-      })),
-      defaultTenant: {
-        alias: resolverDefault.alias,
-        token: summarizeValue(resolverDefault.token),
-        locationId: summarizeValue(resolverDefault.locationId),
-      },
+      keys: Object.fromEntries(GHL_ENV_KEYS.map(key => [key, presence(dotEnvValues[key] || '')])),
     },
     userEnv: {
       primary: {
-        token: summarizeValue(userPrimaryToken),
-        locationId: summarizeValue(userPrimaryLocationId),
-        matchesResolverDefault: {
-          token: Boolean(userPrimaryToken) && userPrimaryToken === resolverDefault.token,
-          locationId: Boolean(userPrimaryLocationId) && userPrimaryLocationId === resolverDefault.locationId,
-        },
+        token: presence(userPrimaryToken),
+        locationId: userPrimaryLocationId || null,
         auth: userPrimaryAuth,
       },
-      tenantSpecific: {
-        TJB: {
-          token: summarizeValue(readUserEnv('GHL_PRIVATE_INTEGRATION_TOKEN_TJB')),
-          locationId: summarizeValue(readUserEnv('GHL_LOCATION_ID_TJB')),
-        },
-        MSL: {
-          token: summarizeValue(readUserEnv('GHL_PRIVATE_INTEGRATION_TOKEN_MSL')),
-          locationId: summarizeValue(readUserEnv('GHL_LOCATION_ID_MSL')),
-        },
-      },
+      tenantSpecific,
     },
     warnings,
     tenantChecks,
   };
 
-  report.overallHealthy = tenantChecks.every(check => check.auth.ok) && userPrimaryAuth.ok;
+  report.overallHealthy = tenantChecks.length > 0 && tenantChecks.every(check => check.auth.ok) && userPrimaryAuth.ok;
   report.overallConsistent = warnings.length === 0;
   report.status = report.overallHealthy
     ? report.overallConsistent ? 'healthy' : 'healthy_with_drift'
@@ -282,10 +178,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error(JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    fatal: true,
-    message: error.message,
-  }, null, 2));
+  console.error(JSON.stringify({ generatedAt: new Date().toISOString(), fatal: true, message: error.message }, null, 2));
   process.exit(1);
 });
