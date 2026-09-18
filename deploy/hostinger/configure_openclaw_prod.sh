@@ -107,7 +107,7 @@ EOF
 fi
 
 # ── Multi-tenant GHL tokens ─────────────────────────────────
-GHL_TENANT_ALIASES=(TJB MSL RR AAMA IBM EOS_TEMPLATES EOS_MODULES RTL 1OAK)
+GHL_TENANT_ALIASES=(TJB MSL RR AAMA IBM EOS_TEMPLATES EOS_MODULES RTL)
 for alias in "${GHL_TENANT_ALIASES[@]}"; do
   token_var="GHL_PRIVATE_INTEGRATION_TOKEN_${alias}"
   location_var="GHL_LOCATION_ID_${alias}"
