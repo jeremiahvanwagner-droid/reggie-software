@@ -3,7 +3,7 @@ param(
   [string]$ServerIp,
   [string]$SshKeyPath = "$env:USERPROFILE\.ssh\id_ed25519",
   [string]$LocalEnv   = "$env:USERPROFILE\.openclaw\.env",
-  [ValidateSet('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL','1OAK')]
+  [ValidateSet('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL')]
   [string]$PrimaryTenant = 'TJB'
 )
 
@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 if (-not (Test-Path $SshKeyPath)) { throw "SSH key not found: $SshKeyPath" }
 if (-not (Test-Path $LocalEnv))   { throw "Local .env not found: $LocalEnv" }
 
-$tenantAliases = @('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL','1OAK')
+$tenantAliases = @('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL')
 
 # Parse local .env.
 $localVals = @{}
