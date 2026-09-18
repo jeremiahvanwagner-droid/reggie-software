@@ -1,6 +1,6 @@
 param(
   [string]$EnvPath = (Join-Path (Join-Path $PSScriptRoot '..') '.env'),
-  [ValidateSet('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL','1OAK')]
+  [ValidateSet('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL')]
   [string]$PrimaryTenant = 'TJB'
 )
 
@@ -36,7 +36,7 @@ foreach ($key in @($values.Keys)) {
   })
 }
 
-$tenantAliases = @('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL','1OAK')
+$tenantAliases = @('TJB','MSL','RR','AAMA','IBM','EOS_TEMPLATES','EOS_MODULES','RTL')
 $configuredTenants = @()
 $assignments = [ordered]@{}
 
